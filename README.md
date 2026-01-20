@@ -1,52 +1,76 @@
-# 🧠 Guía Redes: DNS Maestro/Esclavo + Web Multidominio (ASIR)
+# 🧠 Guía Explicada Paso a Paso: DNS Maestro/Esclavo + Web Multidominio (ASIR)
 
-Guía completa **Para Luis Ruz** como referencia de examen y laboratorio.
+> Esta guía **no es solo para copiar y pegar**. Está pensada para que **sepas en todo momento dónde estás, qué estás haciendo, por qué lo haces y cómo continuar**, exactamente como te lo pedirían en un examen práctico de ASIR.
 
 ---
 
-## 🧪 Escenario del Examen
+## 📌 0. Contexto General: ¿Qué estamos montando?
 
-* **Red:** `172.16.102.0/24`
-* **Servidor DNS Maestro + Web (Ubuntu Server):**
+Vamos a construir **una infraestructura completa típica de examen**:
 
-  * IP: `172.16.102.5`
-  * Hostname: `anthony`
-* **Servidor DNS Esclavo / Cliente (Ubuntu Redes):**
+* Un **servidor DNS Maestro** que gestiona varios dominios.
+* Un **servidor DNS Esclavo** que replica automáticamente las zonas.
+* Un **servidor web Apache** que aloja **varias páginas web** (una por dominio).
 
-  * IP: `172.16.102.1`
+Todo funcionando **con resolución DNS real**, sin `/etc/hosts`.
 
-### 🌍 Dominios
+---
+
+## 🧪 1. Escenario del Examen (Dónde estamos)
+
+### 📡 Red
+
+* Red interna: `172.16.102.0/24`
+
+### 🖥️ Máquinas
+
+| Máquina       | Rol                   | IP           |
+| ------------- | --------------------- | ------------ |
+| Ubuntu Server | DNS Maestro + Apache  | 172.16.102.5 |
+| Ubuntu Redes  | DNS Esclavo + Cliente | 172.16.102.1 |
+
+### 🌍 Dominios que vamos a gestionar
 
 * `anthony.ies`
 * `tienda.ies`
 * `blog.ies`
 
+👉 **Objetivo final**: que desde el cliente pueda entrar a los 3 dominios por navegador y que el DNS funcione incluso si el maestro cae.
+
 ---
 
-## 🛠️ PARTE 1: Configuración Previa (Server y Cliente)
+## 🛠️ 2. Preparación Inicial (Qué hacemos primero y por qué)
 
-### 1.1 Instalación de Paquetes
+Antes de configurar nada, **ambas máquinas deben tener las herramientas necesarias**.
 
-En **ambas máquinas**:
+### 2.1 Instalación de paquetes
+
+📍 Estamos en: **Servidor y Cliente**
 
 ```bash
 sudo apt update
 sudo apt install bind9 dnsutils apache2
 ```
 
+🔎 **Por qué**:
+
+* `bind9`: servidor DNS
+* `dnsutils`: herramientas de prueba (`dig`, `nslookup`)
+* `apache2`: servidor web (solo se usará en el Server, pero no molesta en el cliente)
+
 ---
 
-### 1.2 Solución al Error SERVFAIL (CRÍTICO EN EXAMEN)
+### 2.2 Error CRÍTICO de laboratorio: SERVFAIL
 
-Desactivar **DNSSEC** para evitar errores de validación.
+📍 Seguimos en **ambas máquinas**
+
+En entornos educativos, **DNSSEC provoca errores**. Si no lo desactivas, el DNS falla aunque esté bien configurado.
 
 Editar:
 
 ```bash
 sudo nano /etc/bind/named.conf.options
 ```
-
-Contenido:
 
 ```conf
 options {
@@ -62,17 +86,31 @@ options {
 };
 ```
 
+✅ **Qué hemos hecho**: garantizar que el DNS no se rompe por validaciones externas.
+
 ---
 
-## 🦁 PARTE 2: Servidor DNS Maestro (172.16.102.5)
+## 🦁 3. DNS Maestro (Servidor 172.16.102.5)
 
-### 2.1 Declaración de Zonas
+📍 Ahora estamos **solo en el servidor maestro**.
+
+Aquí es donde **se crean y gestionan las zonas DNS**. El esclavo solo copiará.
+
+---
+
+### 3.1 Declarar las zonas (Decirle a Bind qué dominios existen)
 
 Archivo:
 
 ```bash
 sudo nano /etc/bind/named.conf.local
 ```
+
+Aquí declaramos:
+
+* 3 zonas directas
+* 1 zona inversa
+* Permitimos que el esclavo copie los datos
 
 ```conf
 zone "anthony.ies" {
@@ -104,15 +142,27 @@ zone "102.16.172.in-addr.arpa" {
 };
 ```
 
+🧠 **Qué está pasando**:
+
+* `type master`: este servidor manda
+* `allow-transfer`: permitimos réplica
+* `also-notify`: avisamos al esclavo de cambios
+
 ---
 
-### 2.2 Archivos de Zona
+### 3.2 Crear los archivos de zona (Los datos reales del DNS)
+
+📍 Seguimos en el **Servidor Maestro**
+
+Primero creamos la carpeta:
 
 ```bash
 sudo mkdir -p /etc/bind/zones
 ```
 
-#### A) db.anthony.ies
+---
+
+#### 3.2.1 Zona anthony.ies
 
 ```bash
 sudo nano /etc/bind/zones/db.anthony.ies
@@ -133,9 +183,15 @@ router IN A 172.16.102.100
 www IN CNAME ns
 ```
 
+🧠 **Qué hemos definido**:
+
+* Quién es el DNS
+* Qué IP tiene cada nombre
+* Alias `www`
+
 ---
 
-#### B) db.tienda.ies
+#### 3.2.2 Zona tienda.ies
 
 ```bash
 sudo nano /etc/bind/zones/db.tienda.ies
@@ -155,7 +211,7 @@ www IN CNAME ns
 
 ---
 
-#### C) db.blog.ies
+#### 3.2.3 Zona blog.ies
 
 ```bash
 sudo nano /etc/bind/zones/db.blog.ies
@@ -175,7 +231,7 @@ www IN CNAME ns
 
 ---
 
-#### D) Zona Inversa db.172
+#### 3.2.4 Zona inversa
 
 ```bash
 sudo nano /etc/bind/zones/db.172
@@ -193,17 +249,21 @@ $TTL 604800
 
 ---
 
-### 2.3 Reiniciar DNS
+### 3.3 Aplicar cambios
 
 ```bash
 sudo systemctl restart bind9
 ```
 
+✅ El maestro ya funciona.
+
 ---
 
-## 🐵 PARTE 3: Servidor DNS Esclavo (172.16.102.1)
+## 🐵 4. DNS Esclavo (172.16.102.1)
 
-Archivo:
+📍 Ahora estamos en el **servidor esclavo**.
+
+Este **NO crea zonas**, solo las copia.
 
 ```bash
 sudo nano /etc/bind/named.conf.local
@@ -240,21 +300,29 @@ sudo systemctl restart bind9
 ls -l /var/cache/bind/
 ```
 
+✅ Si ves los archivos, la transferencia funciona.
+
 ---
 
-## 🌐 PARTE 4: Apache Web Multidominio (Server)
+## 🌐 5. Apache Multidominio (Servidor)
 
-### 4.1 Directorios Web
+📍 Volvemos al **Servidor Maestro**.
+
+### 5.1 Crear carpetas web
 
 ```bash
 sudo mkdir -p /var/www/anthony /var/www/tienda /var/www/blog
 ```
 
-### 4.2 Virtual Hosts
+Cada dominio tendrá **su propia web**.
 
-Archivos en `/etc/apache2/sites-available/`
+---
 
-#### anthony.conf
+### 5.2 Virtual Hosts (Decirle a Apache qué web servir)
+
+📍 `/etc/apache2/sites-available/`
+
+Ejemplo:
 
 ```apache
 <VirtualHost *:80>
@@ -264,27 +332,11 @@ Archivos en `/etc/apache2/sites-available/`
 </VirtualHost>
 ```
 
-#### tienda.conf
+(Repetir para tienda y blog)
 
-```apache
-<VirtualHost *:80>
-    ServerName www.tienda.ies
-    ServerAlias tienda.ies
-    DocumentRoot /var/www/tienda
-</VirtualHost>
-```
+---
 
-#### blog.conf
-
-```apache
-<VirtualHost *:80>
-    ServerName www.blog.ies
-    ServerAlias blog.ies
-    DocumentRoot /var/www/blog
-</VirtualHost>
-```
-
-### 4.3 Activación
+### 5.3 Activación
 
 ```bash
 sudo a2dissite 000-default.conf
@@ -296,29 +348,14 @@ sudo systemctl reload apache2
 
 ---
 
-## 🔥 PARTE 5: Troubleshooting Rápido
-
-```bash
-sudo ufw allow 53/tcp
-sudo ufw allow 53/udp
-sudo ufw allow 80/tcp
-```
-
-```bash
-sudo journalctl -u bind9 -f
-tail -f /var/log/apache2/error.log
-```
-
----
-
-## ✅ PARTE 6: Comprobación Final
+## ✅ 6. Comprobación Final (Esto es lo que mira el profe)
 
 ```bash
 nslookup anthony.ies
 dig @172.16.102.1 anthony.ies axfr
 ```
 
-### 🌐 Navegador
+🌍 Navegador:
 
 * [http://www.anthony.ies](http://www.anthony.ies)
 * [http://www.tienda.ies](http://www.tienda.ies)
@@ -326,4 +363,4 @@ dig @172.16.102.1 anthony.ies axfr
 
 ---
 
-🎓 **Si esto funciona: examen aprobado.**
+🎓 **Si entiendes cada paso de este documento, estás preparado para el examen.**
